@@ -1,0 +1,43 @@
+
+namespace Demo.App
+{
+    public class ProductService : IProductService
+    {
+        private readonly HttpClient httpClient;
+        private readonly IDistributedCache cache;
+        private readonly string UserName;
+        private readonly string Password;
+
+        public ProductService(HttpClient httpClient, IDistributedCache cache)
+        {
+            this.httpClient = httpClient;
+            this.cache = cache;
+            this.UserName = "dummy";
+            this.Password ="dummy";
+        }
+
+        
+
+        private async Task<string> GetToken(CancellationToken cancellationToken)
+        {
+            var cacheKey = "REDIS-TOKEN";
+            var token = await cache.GetStringAsync(cacheKey);
+            if (!string.IsNullOrEmpty(token))
+            {
+                return token;
+            }
+            var postData = new { UserName = _UserName, Password = _Password };
+            var strPostData = JsonSerializer.Serialize(postData);
+            var body = new StringContent(strPostData, Encoding.UTF8, "application/json");            
+            var response = await httpClient.PostAsync($"baseasress", body, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new InvalidOperationException("error!");
+            }
+            var strResponse = await response.Content.ReadAsStringAsync();
+            var tokenResult = JsonSerializer.Deserialize<TokenResult>(strResponse, new JsonSerializerOptions() { PropertyNameCaseInsensitive = true });
+            await cache.SetStringAsync(cacheKey, TokenResult.Token, new DistributedCacheEntryOptions() { AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5) }, cancellationToken);
+            return productTokenResult.Token;
+        }
+    }
+}
