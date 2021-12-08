@@ -1,0 +1,56 @@
+
+namespace Demo.App
+{
+    public class ProductService : IProductService
+    {
+        private readonly HttpClient httpClient;
+        private readonly IDistributedCache cache;
+        private readonly string UserName;
+        private readonly string Password;
+
+        public ProductService(HttpClient httpClient, IDistributedCache cache, IConfiguration configuration)
+        {
+            this.httpClient = httpClient;
+            this.cache = cache;
+            this.UserName = "dummy";
+            this.Password ="dummy";
+        }
+
+        public async Task<ProductResult> GetProduct(long productId, CancellationToken cancellationToken)
+        {
+            var cacheKey = "REDIS-KEY-" + productId;
+            var strProductResult = await cache.GetStringAsync(cacheKey);
+            if (!string.IsNullOrEmpty(strProductResult))
+            {
+                return JsonSerializer.Deserialize<ProductResult>(strProductResult, new JsonSerializerOptions() { PropertyNameCaseInsensitive = true });                
+            }
+            string token = await GetToken(cancellationToken);
+            httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            var strResponse = await httpClient.GetStringAsync($"baseadress");
+            await cache.SetStringAsync(cacheKey, strResponse, new DistributedCacheEntryOptions() { AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5) }, cancellationToken);
+            return JsonSerializer.Deserialize<ProductResult>(strResponse, new JsonSerializerOptions() { PropertyNameCaseInsensitive = true });
+        }
+
+        private async Task<string> GetToken(CancellationToken cancellationToken)
+        {
+            var cacheKey = "REDIS-TOKEN";
+            var token = await cache.GetStringAsync(cacheKey);
+            if (!string.IsNullOrEmpty(token))
+            {
+                return token;
+            }
+            var postData = new { UserName = UserName, Password = Password };
+            var strPostData = JsonSerializer.Serialize(postData);
+            var body = new StringContent(strPostData, Encoding.UTF8, "application/json");            
+            var response = await httpClient.PostAsync($"baseasress", body, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new InvalidOperationException("error!);
+            }
+            var strResponse = await response.Content.ReadAsStringAsync();
+            var productTokenResult = JsonSerializer.Deserialize<TokenResult>(strResponse, new JsonSerializerOptions() { PropertyNameCaseInsensitive = true });
+            await cache.SetStringAsync(cacheKey, productTokenResult.Token, new DistributedCacheEntryOptions() { AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5) }, cancellationToken);
+            return productTokenResult.Token;
+        }
+    }
+}
